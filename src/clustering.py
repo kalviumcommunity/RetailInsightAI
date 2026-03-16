@@ -9,9 +9,14 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "model")
 
 def train_clustering(rfm: pd.DataFrame, n_clusters: int = 4) -> pd.DataFrame:
     """
-    Scale RFM features, train KMeans, attach cluster labels,
-    and persist the model and scaler to the model/ directory.
-    Returns the RFM dataframe with a Cluster column.
+    Scale RFM features with StandardScaler, train KMeans,
+    attach cluster labels, and save model artefacts.
+
+    Saves:
+      model/kmeans_model.pkl
+      model/scaler.pkl
+
+    Returns the RFM DataFrame with a Cluster column.
     """
     os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -29,7 +34,7 @@ def train_clustering(rfm: pd.DataFrame, n_clusters: int = 4) -> pd.DataFrame:
 
 
 def load_and_predict(rfm: pd.DataFrame) -> pd.DataFrame:
-    """Load saved models and assign cluster labels to an RFM dataframe."""
+    """Load saved models and assign cluster labels to an RFM DataFrame."""
     scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
     kmeans = joblib.load(os.path.join(MODEL_DIR, "kmeans_model.pkl"))
 

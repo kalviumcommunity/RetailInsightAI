@@ -3,7 +3,7 @@ import pandas as pd
 
 def calculate_clv(rfm: pd.DataFrame) -> pd.DataFrame:
     """
-    Add a Customer Lifetime Value column.
+    Add Customer Lifetime Value column.
     CLV = (Monetary * Frequency) / (Recency + 1)
     """
     rfm = rfm.copy()
@@ -13,8 +13,8 @@ def calculate_clv(rfm: pd.DataFrame) -> pd.DataFrame:
 
 def cluster_summary(rfm: pd.DataFrame) -> pd.DataFrame:
     """
-    Return average Recency, Frequency, Monetary, and CLV per cluster.
-    Requires the RFM dataframe to already have Cluster and CLV columns.
+    Return mean Recency, Frequency, Monetary, and CLV per cluster.
+    Requires Cluster and CLV columns to already exist in rfm.
     """
     return (
         rfm.groupby("Cluster")[["Recency", "Frequency", "Monetary", "CLV"]]
