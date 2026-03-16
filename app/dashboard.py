@@ -43,3 +43,6 @@ if uploaded_file is not None:
     ax.set_title("Customer Segments")
 
     st.pyplot(fig)
+
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("Download Clustered Data", csv, "clustered_data.csv", "text/csv")
