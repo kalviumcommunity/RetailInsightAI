@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Allow imports from project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
@@ -9,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from src.preprocessing import load_and_clean, build_rfm
+from src.preprocessing import load_data, create_rfm
 from src.clustering import train_clustering
 from src.analytics import calculate_clv, cluster_summary
 from src.recommendation import get_top_products_per_cluster
@@ -28,9 +27,9 @@ st.title("Retail Customer Segmentation Dashboard")
 
 
 @st.cache_data(show_spinner="Loading and processing data...")
-def load_data():
-    df = load_and_clean(DATA_PATH)
-    rfm = build_rfm(df)
+def load_pipeline():
+    df = load_data(DATA_PATH)
+    rfm = create_rfm(df)
     rfm = train_clustering(rfm)
     rfm = calculate_clv(rfm)
     top_products = get_top_products_per_cluster(df, rfm)
@@ -38,7 +37,7 @@ def load_data():
     return df, rfm, top_products, summary
 
 
-df, rfm, top_products, summary = load_data()
+df, rfm, top_products, summary = load_pipeline()
 
 # ── Section 1: Data Overview ──────────────────────────────────────────────────
 st.subheader("Section 1 — Data Overview")
@@ -68,7 +67,7 @@ st.pyplot(fig2)
 plt.close(fig2)
 
 # ── Section 3: Frequency vs Monetary Scatter ─────────────────────────────────
-st.subheader("Section 3 — Cluster Visualisation (Frequency vs Monetary)")
+st.subheader("Section 3 — Customer Segmentation (Frequency vs Monetary)")
 
 fig3, ax3 = plt.subplots(figsize=(8, 5))
 palette = {0: "#4C72B0", 1: "#DD8452", 2: "#55A868", 3: "#C44E52"}
@@ -112,6 +111,8 @@ st.subheader("Section 5 — Customer Search")
 customer_id = st.number_input(
     "Enter CustomerID", min_value=0, step=1, value=0, format="%d"
 )
+
+customer_id = int(customer_id)
 
 if customer_id and customer_id in rfm.index:
     row = rfm.loc[customer_id]
