@@ -1,35 +1,39 @@
+import os
+import joblib
 import pandas as pd
 from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "model")
 
 
-def load_data(path):
+def train_clustering(rfm: pd.DataFrame, n_clusters: int = 4) -> pd.DataFrame:
     """
-    Load dataset from CSV file
+    Scale RFM features, train KMeans, attach cluster labels,
+    and persist the model and scaler to the model/ directory.
+    Returns the RFM dataframe with a Cluster column.
     """
-    df = pd.read_csv(path)
-    return df
+    os.makedirs(MODEL_DIR, exist_ok=True)
+
+    scaler = StandardScaler()
+    rfm_scaled = scaler.fit_transform(rfm[["Recency", "Frequency", "Monetary"]])
+
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    rfm = rfm.copy()
+    rfm["Cluster"] = kmeans.fit_predict(rfm_scaled)
+
+    joblib.dump(kmeans, os.path.join(MODEL_DIR, "kmeans_model.pkl"))
+    joblib.dump(scaler, os.path.join(MODEL_DIR, "scaler.pkl"))
+
+    return rfm
 
 
-def prepare_features(df):
-    """
-    Select features used for clustering
-    """
-    X = df[["Annual Income (k$)", "Spending Score (1-100)"]]
-    return X
+def load_and_predict(rfm: pd.DataFrame) -> pd.DataFrame:
+    """Load saved models and assign cluster labels to an RFM dataframe."""
+    scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
+    kmeans = joblib.load(os.path.join(MODEL_DIR, "kmeans_model.pkl"))
 
-
-def run_kmeans(X, n_clusters=5):
-    """
-    Train KMeans clustering model
-    """
-    model = KMeans(n_clusters=n_clusters, random_state=42)
-    clusters = model.fit_predict(X)
-    return model, clusters
-
-
-def add_clusters(df, clusters):
-    """
-    Attach cluster labels to dataset
-    """
-    df["Cluster"] = clusters
-    return df
+    rfm_scaled = scaler.transform(rfm[["Recency", "Frequency", "Monetary"]])
+    rfm = rfm.copy()
+    rfm["Cluster"] = kmeans.predict(rfm_scaled)
+    return rfm
