@@ -1,221 +1,329 @@
 import sys
 import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import io
+import warnings
+warnings.filterwarnings("ignore")
 
-import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
 
-from src.preprocessing import load_data, clean_data
+from src.preprocessing import clean_data
 from src.feature_engineering import create_rfm, add_additional_features
 from src.segmentation_model import train_kmeans, label_segments
-from src.analytics import calculate_clv, cluster_summary, cohort_analysis
+from src.analytics import calculate_clv, cohort_analysis
 from src.churn_model import create_churn_label, train_churn_model
 from src.recommendation import get_top_products_per_cluster
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "Online Retail.csv")
+# ── Page config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Retail Customer Intelligence Dashboard",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-SEGMENT_ACTIONS = {
-    "Champions":          "Reward them. Ask for reviews. Offer early access to new products.",
-    "Loyal Customers":    "Upsell higher-value products. Enrol in loyalty programme.",
-    "Potential Loyalists":"Offer membership or loyalty programme. Recommend related products.",
-    "At Risk":            "Send win-back campaign. Offer personalised discount.",
-}
+# ── Global styles ─────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    /* Force white background */
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        background-color: #ffffff !important;
+    }
+    [data-testid="stHeader"] { background: #ffffff !important; box-shadow: none; }
 
-st.set_page_config(page_title="Retail Customer Intelligence Dashboard", layout="wide")
-st.title("Retail Customer Intelligence Dashboard")
+    /* Main content padding */
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; max-width: 1200px; }
 
+    /* Section headings */
+    .section-heading {
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: #1a1a2e;
+        border-bottom: 2px solid #4a90d9;
+        padding-bottom: 6px;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+    }
 
-# ── Pipeline (cached) ─────────────────────────────────────────────────────────
-@st.cache_data(show_spinner="Running ML pipeline — this may take a moment...")
-def run_pipeline():
-    df = clean_data(load_data(DATA_PATH))
+    /* KPI cards */
+    .kpi-box {
+        background: #f7f8fa;
+        border: 1px solid #e4e4e4;
+        border-radius: 10px;
+        padding: 20px 16px;
+        text-align: center;
+    }
+    .kpi-label {
+        font-size: 0.72rem;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+    }
+    .kpi-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #1a1a2e;
+    }
+
+    /* Hide default streamlit top padding */
+    #MainMenu, footer { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Pipeline ─────────────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def run_pipeline(file_bytes: bytes) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Run the full ML pipeline and return (rfm, df_clean, cohort_retention)."""
+    raw = pd.read_csv(io.BytesIO(file_bytes), encoding="ISO-8859-1")
+    df = clean_data(raw)
+
     rfm = create_rfm(df)
     rfm = add_additional_features(rfm, df)
-    rfm = train_kmeans(rfm)
+    rfm = train_kmeans(rfm, n_clusters=4)
     rfm = label_segments(rfm)
     rfm = calculate_clv(rfm)
     rfm = create_churn_label(rfm)
     rfm = train_churn_model(rfm)
-    top_products = get_top_products_per_cluster(df, rfm)
+
     retention = cohort_analysis(df)
-    summary = cluster_summary(rfm)
-    return df, rfm, top_products, retention, summary
+    return rfm, df, retention
 
+# ── Header ────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="padding: 1.5rem 0 0.5rem 0;">
+    <div style="font-size: 0.8rem; color: #4a90d9; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px;">
+        Analytics Platform
+    </div>
+    <div style="font-size: 2rem; font-weight: 800; color: #1a1a2e; line-height: 1.2;">
+        Retail Customer Intelligence Dashboard
+    </div>
+    <div style="font-size: 0.9rem; color: #666; margin-top: 8px;">
+        Upload a retail transactions CSV to run the full analytics pipeline.
+    </div>
+</div>
+<hr style="border: none; border-top: 1px solid #e8e8e8; margin: 1.2rem 0 1.5rem 0;">
+""", unsafe_allow_html=True)
 
-df, rfm, top_products, retention, summary = run_pipeline()
+# ── File upload ───────────────────────────────────────────────────────────────
+uploaded_file = st.file_uploader("Upload your dataset", type=["csv"])
 
+if uploaded_file is None:
+    st.info("Please upload a CSV file to get started.")
+    st.stop()
 
-# ── KPI Row ───────────────────────────────────────────────────────────────────
-total_customers = rfm.shape[0]
-total_revenue   = df["TotalPrice"].sum()
-avg_clv         = rfm["CLV"].mean()
-high_risk       = (rfm["ChurnProb"] > 0.7).sum()
+# ── Run pipeline ──────────────────────────────────────────────────────────────
+with st.spinner("Running pipeline — this may take a moment on first run..."):
+    try:
+        rfm, df_clean, retention = run_pipeline(uploaded_file.read())
+    except Exception as e:
+        st.error(f"Pipeline error: {e}")
+        st.stop()
 
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total Customers",    f"{total_customers:,}")
-k2.metric("Total Revenue",      f"${total_revenue:,.0f}")
-k3.metric("Average CLV",        f"{avg_clv:,.1f}")
-k4.metric("High-Risk Customers (churn > 70%)", f"{high_risk:,}")
+required_cols = {"Recency", "Frequency", "Monetary", "CLV", "ChurnProb", "SegmentLabel"}
+missing = required_cols - set(rfm.columns)
+if missing:
+    st.error(f"Missing expected columns after pipeline: {missing}")
+    st.stop()
 
-st.divider()
+# ── KPI Section ───────────────────────────────────────────────────────────────
+st.markdown('<div class="section-heading">Key Metrics</div>', unsafe_allow_html=True)
 
-# ── Section 1: Segment Analysis ───────────────────────────────────────────────
-st.subheader("Section 1 — Segment Analysis")
+total_customers = len(rfm)
+total_revenue = df_clean["TotalPrice"].sum()
+avg_clv = rfm["CLV"].mean()
+high_risk = (rfm["ChurnProb"] > 0.7).sum()
+
+col1, col2, col3, col4 = st.columns(4)
+for col, label, value in [
+    (col1, "Total Customers", f"{total_customers:,}"),
+    (col2, "Total Revenue", f"£{total_revenue:,.0f}"),
+    (col3, "Average CLV", f"£{avg_clv:,.2f}"),
+    (col4, "High Risk Customers", f"{high_risk:,}"),
+]:
+    col.markdown(
+        f'<div class="kpi-box"><div class="kpi-label">{label}</div>'
+        f'<div class="kpi-value">{value}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+# ── Section 1 — Segment Analysis ─────────────────────────────────────────────
+st.markdown('<div class="section-heading">Section 1 — Segment Analysis</div>', unsafe_allow_html=True)
+
+seg_counts = rfm["SegmentLabel"].value_counts().reset_index()
+seg_counts.columns = ["Segment", "Customers"]
+
+seg_revenue = (
+    rfm.groupby("SegmentLabel")["Monetary"].sum().reset_index()
+    .rename(columns={"SegmentLabel": "Segment", "Monetary": "Revenue"})
+)
 
 col_a, col_b = st.columns(2)
 
 with col_a:
-    seg_counts = rfm["SegmentLabel"].value_counts()
-    fig1a, ax1a = plt.subplots(figsize=(6, 4))
-    ax1a.bar(seg_counts.index, seg_counts.values, color="#4C72B0")
-    ax1a.set_xlabel("Segment")
-    ax1a.set_ylabel("Number of Customers")
-    ax1a.set_title("Customer Distribution by Segment")
-    plt.xticks(rotation=20, ha="right")
-    plt.tight_layout()
-    st.pyplot(fig1a)
-    plt.close(fig1a)
+    fig_bar = px.bar(
+        seg_counts, x="Segment", y="Customers",
+        color="Segment",
+        color_discrete_sequence=px.colors.qualitative.Set2,
+        title="Customers per Segment",
+    )
+    fig_bar.update_layout(showlegend=False, plot_bgcolor="#fff", paper_bgcolor="#fff",
+                          font_color="#333", title_font_size=14)
+    st.plotly_chart(fig_bar, use_container_width=True)
 
 with col_b:
-    seg_revenue = rfm.groupby("SegmentLabel")["Monetary"].sum()
-    fig1b, ax1b = plt.subplots(figsize=(6, 4))
-    ax1b.pie(
-        seg_revenue.values,
-        labels=seg_revenue.index,
-        autopct="%1.1f%%",
-        startangle=140,
-        colors=["#4C72B0", "#DD8452", "#55A868", "#C44E52"],
+    fig_pie = px.pie(
+        seg_revenue, names="Segment", values="Revenue",
+        color_discrete_sequence=px.colors.qualitative.Set2,
+        title="Revenue Contribution per Segment",
     )
-    ax1b.set_title("Revenue Contribution by Segment")
-    plt.tight_layout()
-    st.pyplot(fig1b)
-    plt.close(fig1b)
+    fig_pie.update_layout(plot_bgcolor="#fff", paper_bgcolor="#fff",
+                          font_color="#333", title_font_size=14)
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-st.divider()
+# ── Section 2 — Customer Behavior ────────────────────────────────────────────
+st.markdown('<div class="section-heading">Section 2 — Customer Behavior</div>', unsafe_allow_html=True)
 
-# ── Section 2: Customer Behaviour ─────────────────────────────────────────────
-st.subheader("Section 2 — Customer Behaviour")
+fig_scatter = px.scatter(
+    rfm.reset_index(), x="Frequency", y="Monetary",
+    color="SegmentLabel",
+    color_discrete_sequence=px.colors.qualitative.Set2,
+    opacity=0.6,
+    title="Frequency vs Monetary by Segment",
+    labels={"Frequency": "Purchase Frequency", "Monetary": "Total Spend (£)"},
+    hover_data=["CustomerID"] if "CustomerID" in rfm.reset_index().columns else None,
+)
+fig_scatter.update_layout(plot_bgcolor="#fff", paper_bgcolor="#fff",
+                           font_color="#333", title_font_size=14)
+st.plotly_chart(fig_scatter, use_container_width=True)
 
-palette = {
-    "Champions":          "#4C72B0",
-    "Loyal Customers":    "#55A868",
-    "Potential Loyalists":"#DD8452",
-    "At Risk":            "#C44E52",
-}
-
-fig2, ax2 = plt.subplots(figsize=(9, 5))
-for label, group in rfm.groupby("SegmentLabel"):
-    ax2.scatter(
-        group["Frequency"],
-        group["Monetary"],
-        label=label,
-        color=palette.get(label, "#999999"),
-        alpha=0.55,
-        s=18,
-    )
-ax2.set_xlabel("Frequency (unique invoices)")
-ax2.set_ylabel("Monetary (total spend)")
-ax2.set_title("Frequency vs Monetary by Segment")
-ax2.legend(title="Segment")
-plt.tight_layout()
-st.pyplot(fig2)
-plt.close(fig2)
-
-st.divider()
-
-# ── Section 3: Churn Risk ─────────────────────────────────────────────────────
-st.subheader("Section 3 — Churn Risk")
+# ── Section 3 — Churn Analysis ────────────────────────────────────────────────
+st.markdown('<div class="section-heading">Section 3 — Churn Analysis</div>', unsafe_allow_html=True)
 
 col_c, col_d = st.columns(2)
 
 with col_c:
-    fig3a, ax3a = plt.subplots(figsize=(6, 4))
-    ax3a.hist(rfm["ChurnProb"], bins=30, color="#4C72B0", edgecolor="white")
-    ax3a.set_xlabel("Churn Probability")
-    ax3a.set_ylabel("Number of Customers")
-    ax3a.set_title("Distribution of Churn Probability")
-    plt.tight_layout()
-    st.pyplot(fig3a)
-    plt.close(fig3a)
+    fig_hist = px.histogram(
+        rfm, x="ChurnProb", nbins=30,
+        title="Churn Probability Distribution",
+        labels={"ChurnProb": "Churn Probability"},
+        color_discrete_sequence=["#4a90d9"],
+    )
+    fig_hist.update_layout(plot_bgcolor="#fff", paper_bgcolor="#fff",
+                            font_color="#333", title_font_size=14)
+    st.plotly_chart(fig_hist, use_container_width=True)
 
 with col_d:
-    fig3b, ax3b = plt.subplots(figsize=(6, 4))
-    sc = ax3b.scatter(
-        rfm["Recency"],
-        rfm["CLV"],
-        c=rfm["ChurnProb"],
-        cmap="RdYlGn_r",
-        alpha=0.6,
-        s=18,
+    rfm_plot = rfm.copy()
+    rfm_plot["Risk"] = rfm_plot["ChurnProb"].apply(lambda x: "High Risk" if x > 0.7 else "Low Risk")
+    fig_clv = px.scatter(
+        rfm_plot.reset_index(), x="CLV", y="Recency",
+        color="Risk",
+        color_discrete_map={"High Risk": "#e05c5c", "Low Risk": "#4a90d9"},
+        opacity=0.6,
+        title="CLV vs Recency (Risk Level)",
+        labels={"CLV": "Customer Lifetime Value", "Recency": "Recency (days)"},
     )
-    plt.colorbar(sc, ax=ax3b, label="Churn Probability")
-    ax3b.set_xlabel("Recency (days)")
-    ax3b.set_ylabel("CLV")
-    ax3b.set_title("CLV vs Recency (coloured by Churn Risk)")
-    plt.tight_layout()
-    st.pyplot(fig3b)
-    plt.close(fig3b)
+    fig_clv.update_layout(plot_bgcolor="#fff", paper_bgcolor="#fff",
+                           font_color="#333", title_font_size=14)
+    st.plotly_chart(fig_clv, use_container_width=True)
 
-st.divider()
+# ── Section 4 — Retention Analysis ───────────────────────────────────────────
+st.markdown('<div class="section-heading">Section 4 — Retention Analysis</div>', unsafe_allow_html=True)
 
-# ── Section 4: Cohort Retention ───────────────────────────────────────────────
-st.subheader("Section 4 — Cohort Retention")
+try:
+    retention_display = retention.copy()
+    retention_display.index = retention_display.index.astype(str)
+    retention_display.columns = [str(c) for c in retention_display.columns]
 
-# Limit to first 12 months for readability
-retention_display = retention.iloc[:, :12]
+    fig_heatmap = go.Figure(data=go.Heatmap(
+        z=retention_display.values,
+        x=[f"Month {c}" for c in retention_display.columns],
+        y=retention_display.index.tolist(),
+        colorscale=[[0, "#f0f4ff"], [1, "#1a4fa0"]],
+        text=np.round(retention_display.values * 100, 1),
+        texttemplate="%{text}%",
+        showscale=True,
+        hoverongaps=False,
+    ))
+    fig_heatmap.update_layout(
+        title="Monthly Cohort Retention Rate",
+        xaxis_title="Months Since First Purchase",
+        yaxis_title="Cohort Month",
+        plot_bgcolor="#fff",
+        paper_bgcolor="#fff",
+        font_color="#333",
+        title_font_size=14,
+        height=500,
+    )
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+except Exception as e:
+    st.warning(f"Could not render cohort heatmap: {e}")
 
-fig4, ax4 = plt.subplots(figsize=(14, max(6, len(retention_display) * 0.55)))
-sns.heatmap(
-    retention_display.astype(float),
-    annot=True,
-    fmt=".0%",
-    cmap="Blues",
-    linewidths=0.3,
-    ax=ax4,
-    cbar_kws={"label": "Retention Rate"},
+# ── Section 5 — Product Insights ─────────────────────────────────────────────
+st.markdown('<div class="section-heading">Section 5 — Product Insights</div>', unsafe_allow_html=True)
+
+try:
+    top_products = get_top_products_per_cluster(df_clean, rfm, top_n=5)
+    segments = top_products["SegmentLabel"].unique()
+    cols = st.columns(min(len(segments), 4))
+    for i, seg in enumerate(sorted(segments)):
+        with cols[i % len(cols)]:
+            st.markdown(f"**{seg}**")
+            seg_df = (
+                top_products[top_products["SegmentLabel"] == seg][["Description", "TotalQuantity"]]
+                .reset_index(drop=True)
+            )
+            seg_df.index += 1
+            st.dataframe(seg_df, use_container_width=True, hide_index=False)
+except Exception as e:
+    st.warning(f"Could not load product insights: {e}")
+
+# ── Section 6 — Customer Search ───────────────────────────────────────────────
+st.markdown('<div class="section-heading">Section 6 — Customer Search</div>', unsafe_allow_html=True)
+
+rfm_indexed = rfm.reset_index()
+customer_ids = rfm_indexed["CustomerID"].tolist()
+
+customer_id = st.number_input(
+    "Enter Customer ID", min_value=0, step=1, value=0,
+    help="Enter a valid CustomerID from the dataset"
 )
-ax4.set_title("Monthly Cohort Retention")
-ax4.set_xlabel("Months Since First Purchase")
-ax4.set_ylabel("Cohort Month")
-plt.tight_layout()
-st.pyplot(fig4)
-plt.close(fig4)
 
-st.divider()
+RECOMMENDATIONS = {
+    "Champions": "Reward them — offer loyalty perks or early access to new products.",
+    "Loyal Customers": "Upsell — suggest premium products or bundle deals.",
+    "Potential Loyalists": "Nurture — send personalised offers to increase engagement.",
+    "At Risk": "Re-engage — send a win-back campaign with a discount or reminder.",
+}
 
-# ── Section 5: Product Insights ───────────────────────────────────────────────
-st.subheader("Section 5 — Top Products per Segment")
+if customer_id != 0:
+    match = rfm_indexed[rfm_indexed["CustomerID"] == customer_id]
+    if match.empty:
+        st.error(f"Customer ID {customer_id} not found in the dataset.")
+    else:
+        row = match.iloc[0]
+        st.markdown(f'<div style="font-size:1rem;font-weight:700;color:#1a1a2e;margin:1rem 0 0.5rem 0;">Profile for Customer {int(customer_id)}</div>', unsafe_allow_html=True)
 
-segments = sorted(rfm["SegmentLabel"].unique())
-selected_seg = st.selectbox("Select a segment", options=segments)
+        m1, m2, m3 = st.columns(3)
+        m4, m5, m6 = st.columns(3)
 
-seg_products = top_products[top_products["SegmentLabel"] == selected_seg].copy()
-seg_products = seg_products[["Description", "TotalQuantity"]].reset_index(drop=True)
-seg_products.index += 1
-st.dataframe(seg_products, use_container_width=True)
+        m1.metric("Recency (days)", f"{int(row['Recency'])}")
+        m2.metric("Frequency", f"{int(row['Frequency'])}")
+        m3.metric("Monetary", f"£{row['Monetary']:,.2f}")
+        m4.metric("CLV", f"£{row['CLV']:,.2f}")
+        m5.metric("Segment", row["SegmentLabel"])
+        m6.metric("Churn Probability", f"{row['ChurnProb']:.1%}")
 
-st.divider()
-
-# ── Section 6: Customer Search ────────────────────────────────────────────────
-st.subheader("Section 6 — Customer Search")
-
-customer_id = int(st.number_input("Enter CustomerID", min_value=0, step=1, value=0, format="%d"))
-
-if customer_id and customer_id in rfm.index:
-    row = rfm.loc[customer_id]
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Recency (days)",    int(row["Recency"]))
-    c2.metric("Frequency",         int(row["Frequency"]))
-    c3.metric("Monetary",          f"${row['Monetary']:,.2f}")
-    c4.metric("CLV",               f"{row['CLV']:,.1f}")
-    c5.metric("Segment",           str(row["SegmentLabel"]))
-    c6.metric("Churn Probability", f"{row['ChurnProb']:.1%}")
-
-    action = SEGMENT_ACTIONS.get(str(row["SegmentLabel"]), "No action defined.")
-    st.info(f"Recommended action: {action}")
-
-elif customer_id != 0:
-    st.warning(f"CustomerID {customer_id} not found in the dataset.")
+        segment = row["SegmentLabel"]
+        rec_text = RECOMMENDATIONS.get(segment, "No recommendation available.")
+        st.markdown(
+            f'<div style="background:#f0f4ff;border-left:4px solid #4a90d9;'
+            f'padding:12px 16px;border-radius:4px;margin-top:12px;">'
+            f'<strong>Recommendation ({segment}):</strong> {rec_text}</div>',
+            unsafe_allow_html=True,
+        )
