@@ -1,44 +1,69 @@
-# Retail Customer Segmentation System
+# Retail Customer Intelligence System
 
-## Project Overview
+## Overview
 
-Analyses customer purchase behaviour from the Online Retail dataset,
-segments customers using RFM + K-Means clustering, calculates Customer
-Lifetime Value, and surfaces targeted marketing recommendations through
-an interactive Streamlit dashboard.
+A production-style Customer Intelligence Platform built on the Online Retail
+dataset. It converts a data science notebook into a fully modular ML pipeline
+with an interactive Streamlit dashboard.
+
+## Features
+
+| Feature | Description |
+|---|---|
+| RFM Segmentation | K-Means clusters customers into Champions, Loyal Customers, Potential Loyalists, At Risk |
+| Churn Prediction | RandomForest model outputs churn probability per customer |
+| CLV Calculation | CLV = (Monetary x Frequency) / (Recency + 1) |
+| Cohort Retention | Monthly cohort heatmap showing retention over time |
+| Product Recommendations | Top 5 products per customer segment |
+| Customer Search | Full profile lookup by CustomerID with recommended action |
+
+## Pipeline
+
+```
+load_data + clean_data
+        |
+   create_rfm + add_additional_features
+        |
+   train_kmeans + label_segments
+        |
+   calculate_clv
+        |
+   create_churn_label + train_churn_model
+        |
+   get_top_products_per_cluster + cohort_analysis
+        |
+   Streamlit Dashboard
+```
 
 ## Dataset
 
 Place the file at: `data/Online Retail.csv`
 
-The dataset contains transactional records from a UK-based online retailer
-(2010-2011). Key columns: InvoiceNo, StockCode, Description, Quantity,
-InvoiceDate, UnitPrice, CustomerID, Country.
-
-## RFM Segmentation
-
-Each customer is scored on three dimensions:
-- Recency  — days since last purchase (lower = more recent)
-- Frequency — number of unique invoices
-- Monetary  — total spend
-
-## How Clustering Works
-
-1. Raw transactions are cleaned (nulls, returns, zero-price rows removed).
-2. RFM features are computed per customer.
-3. Features are scaled with StandardScaler.
-4. K-Means (k=4) assigns each customer to a cluster.
-5. CLV is derived as: CLV = (Monetary x Frequency) / (Recency + 1)
+UK-based online retailer transactions (2010-2011).
+Columns: InvoiceNo, StockCode, Description, Quantity, InvoiceDate,
+UnitPrice, CustomerID, Country.
 
 ## Project Structure
 
 ```
-project/
-  data/           Online Retail.csv
-  src/            preprocessing.py  clustering.py  analytics.py  recommendation.py
-  model/          kmeans_model.pkl  scaler.pkl  (auto-generated on first run)
-  app/            streamlit_app.py
-  notebooks/      Retail_Customer_Segmentation.ipynb
+retail-customer-intelligence/
+  data/
+    Online Retail.csv
+  src/
+    preprocessing.py        load_data, clean_data
+    feature_engineering.py  create_rfm, add_additional_features
+    segmentation_model.py   train_kmeans, label_segments
+    analytics.py            calculate_clv, cluster_summary, cohort_analysis
+    churn_model.py          create_churn_label, train_churn_model
+    recommendation.py       get_top_products_per_cluster
+  model/
+    kmeans_model.pkl
+    scaler.pkl
+    churn_model.pkl
+  dashboard/
+    streamlit_app.py
+  notebooks/
+    Retail_Customer_Segmentation.ipynb
   requirements.txt
   README.md
 ```
@@ -49,8 +74,8 @@ project/
 pip install -r requirements.txt
 ```
 
-## Run the Dashboard
+## Run
 
 ```bash
-streamlit run app/streamlit_app.py
+streamlit run dashboard/streamlit_app.py
 ```
