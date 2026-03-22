@@ -38,29 +38,3 @@
 | 17 | Project complete — confirm pipeline runs clean from scratch on a fresh CSV | Project complete — confirm all analytical outputs are correct | Project complete — confirm dashboard runs without errors, ready to present |
 
 ---
-
-## Column Name Contract
-
-All modules must use these exact column names — do not rename without telling the team.
-
-| Column | Set by | Used by |
-|---|---|---|
-| `CustomerID` | Heramb | Shivam, Aayush |
-| `Recency`, `Frequency`, `Monetary` | Heramb | Shivam, Aayush |
-| `AvgOrderValue`, `PurchaseInterval` | Heramb | Shivam |
-| `Cluster`, `SegmentLabel` | Heramb | Shivam, Aayush |
-| `CLV`, `ChurnProb` | Shivam | Aayush |
-| `TotalQuantity` | Shivam | Aayush |
-
----
-
-## Integration Milestones
-
-| Day | Milestone |
-|---|---|
-| Day 6 | Heramb's preprocessing + feature engineering ready for Shivam to consume |
-| Day 9 | Shivam's CLV + churn outputs ready for Aayush to wire into the dashboard |
-| Day 11 | Full pipeline integrated — all three tracks connected |
-| Day 14 | End-to-end run with real data passes without errors |
-| Day 16 | Bug fixes and final review done |
-| Day 17 | Project complete and ready to present |
